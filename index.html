@@ -10,17 +10,15 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
-      --ink: #0b1220;
-      --navy: #0f172a;
-      --muted: #667085;
-      --mint: #10b981;
-      --sky: #38bdf8;
-      --coral: #f97316;
-      --rose: #e11d48;
-      --violet: #6366f1;
-      --card: rgba(255, 255, 255, 0.9);
-      --stroke: rgba(15, 23, 42, 0.08);
-      --shadow: 0 20px 60px rgba(2, 8, 23, 0.12);
+      --ink: #0a0f1f;
+      --navy: #0b1226;
+      --muted: #7a869a;
+      --copper: #b45309;
+      --copper-soft: #f0d4b0;
+      --slate: #1f2937;
+      --card: rgba(255, 255, 255, 0.96);
+      --stroke: rgba(11, 18, 38, 0.08);
+      --shadow: 0 16px 40px rgba(2, 8, 23, 0.14);
     }
 
     * { box-sizing: border-box; }
@@ -28,9 +26,9 @@
     body {
       margin: 0;
       font-family: "Space Grotesk", system-ui, sans-serif;
-      background: radial-gradient(1200px 800px at 10% -10%, #fff6e7, transparent),
-                  radial-gradient(900px 700px at 90% 0%, #e8f7ff, transparent),
-                  linear-gradient(160deg, #f8f4ed 0%, #eef2ff 40%, #f4f7f2 100%);
+      background: radial-gradient(1200px 800px at 10% -10%, #f6eadd, transparent),
+                  radial-gradient(900px 700px at 90% 0%, #e4ebf7, transparent),
+                  linear-gradient(160deg, #f6f1ea 0%, #eef1f7 45%, #f7f7f2 100%);
       color: var(--ink);
     }
 
@@ -62,7 +60,7 @@
       width: 42px;
       height: 42px;
       border-radius: 12px;
-      background: conic-gradient(from 200deg, var(--violet), var(--sky), var(--mint), var(--coral), var(--violet));
+      background: conic-gradient(from 210deg, #0b1226, #1f2a44, #b45309, #f0d4b0, #0b1226);
       box-shadow: inset 0 0 0 2px rgba(255,255,255,0.7);
     }
 
@@ -117,12 +115,12 @@
     }
 
     .btn-primary {
-      background: var(--navy);
+      background: linear-gradient(135deg, #0b1226, #1f2a44);
       color: #fff;
     }
 
     .btn-ghost {
-      background: rgba(15, 23, 42, 0.06);
+      background: rgba(11, 18, 38, 0.06);
       color: var(--navy);
     }
 
@@ -179,8 +177,8 @@
       border-radius: 20px;
       padding: 18px 18px 12px;
       box-shadow: var(--shadow);
-      min-height: 320px;
-      height: 360px;
+      min-height: 300px;
+      height: 340px;
       display: flex;
       flex-direction: column;
     }
@@ -352,7 +350,13 @@
   </div>
 
   <script>
-    const palette = ["#0ea5e9", "#f97316", "#10b981", "#e11d48", "#6366f1", "#f59e0b", "#14b8a6", "#8b5cf6"];
+    const PALETTES = {
+      plan: ["#b45309", "#0b1226", "#1f2a44", "#d97706", "#f0d4b0"],
+      risk: ["#0b1226", "#b45309", "#1f2a44", "#d97706"],
+      status: ["#1f2a44", "#b45309", "#0b1226", "#d97706"],
+      subs: ["#0b1226", "#b45309", "#1f2a44", "#d97706", "#f0d4b0"],
+      interval: ["#b45309", "#0b1226", "#1f2a44", "#d97706"]
+    };
     const API_BASE = (document.body.dataset.apiBase || "").replace(/\/$/, "");
     let charts = [];
     let isLoading = false;
@@ -424,11 +428,13 @@
       return counts;
     }
 
-    function pickColors(n) {
+    function pickColors(n, paletteKey, fallbackColor) {
+      const palette = PALETTES[paletteKey] || PALETTES.subs;
+      if (n === 1 && fallbackColor) return [fallbackColor];
       return Array.from({length: n}, (_, i) => palette[i % palette.length]);
     }
 
-    function renderChart(id, type, counts, emptyId) {
+    function renderChart(id, type, counts, emptyId, paletteKey, singleColor) {
       const canvas = document.getElementById(id);
       const empty = document.getElementById(emptyId);
       if (!counts || Object.keys(counts).length === 0) {
@@ -439,7 +445,7 @@
 
       const labels = Object.keys(counts);
       const values = Object.values(counts);
-      const colors = pickColors(labels.length);
+      const colors = pickColors(labels.length, paletteKey, singleColor);
 
       canvas.style.display = "block";
       empty.style.display = "none";
@@ -543,13 +549,13 @@
         document.querySelector("#chartPlan").closest(".chart-card").querySelector(".chart-title").innerText = planLabel;
         document.querySelector("#chartRisk").closest(".chart-card").querySelector(".chart-title").innerText = riskLabel;
 
-        renderChart("chartPlan", "bar", planCounts, "emptyPlan");
-        renderChart("chartRisk", "pie", riskCounts, "emptyRisk");
-        renderChart("chartReg", "bar", groupCounts(users, regCol), "emptyReg");
+        renderChart("chartPlan", "bar", planCounts, "emptyPlan", "plan", "#b45309");
+        renderChart("chartRisk", "pie", riskCounts, "emptyRisk", "risk", "#0b1226");
+        renderChart("chartReg", "bar", groupCounts(users, regCol), "emptyReg", "status", "#1f2a44");
 
-        renderChart("chartSubStatus", "doughnut", groupCounts(subs, subStatusCol), "emptySubStatus");
-        renderChart("chartSubPlan", "bar", groupCounts(subs, subPlanCol), "emptySubPlan");
-        renderChart("chartSubInterval", "pie", groupCounts(subs, subIntervalCol), "emptySubInterval");
+        renderChart("chartSubStatus", "doughnut", groupCounts(subs, subStatusCol), "emptySubStatus", "subs", "#0b1226");
+        renderChart("chartSubPlan", "bar", groupCounts(subs, subPlanCol), "emptySubPlan", "plan", "#b45309");
+        renderChart("chartSubInterval", "pie", groupCounts(subs, subIntervalCol), "emptySubInterval", "interval", "#d97706");
       } catch (err) {
         errorBanner.textContent = `Data load failed: ${err.message}`;
         errorBanner.classList.add("show");
