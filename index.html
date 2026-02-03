@@ -180,6 +180,7 @@
       padding: 18px 18px 12px;
       box-shadow: var(--shadow);
       min-height: 320px;
+      height: 360px;
       display: flex;
       flex-direction: column;
     }
@@ -225,12 +226,25 @@
       color: var(--muted);
     }
 
+    .error-banner {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      background: rgba(225, 29, 72, 0.12);
+      color: #9f1239;
+      border: 1px solid rgba(225, 29, 72, 0.25);
+      display: none;
+      font-size: 13px;
+    }
+
+    .error-banner.show { display: block; }
+
     @media (max-width: 980px) {
       .hero { grid-template-columns: 1fr; }
     }
   </style>
 </head>
-<body data-api-base="https://YOUR-RENDER-SERVICE.onrender.com">
+<body data-api-base="https://test-oqnm.onrender.com">
   <div class="page">
     <div class="topbar">
       <div class="brand">
@@ -239,6 +253,7 @@
       </div>
       <span class="badge">Live data</span>
     </div>
+    <div id="errorBanner" class="error-banner"></div>
 
     <section class="hero">
       <div class="hero-card">
@@ -340,20 +355,48 @@
     const palette = ["#0ea5e9", "#f97316", "#10b981", "#e11d48", "#6366f1", "#f59e0b", "#14b8a6", "#8b5cf6"];
     const API_BASE = (document.body.dataset.apiBase || "").replace(/\/$/, "");
     let charts = [];
+    let isLoading = false;
 
     function normalizeKey(key) {
       return String(key).toLowerCase().replace(/[^a-z0-9]/g, "");
     }
 
-    function findColumn(rows, candidates) {
+    function firstRowWithKeys(rows) {
       if (!rows || rows.length === 0) return null;
-      const keys = Object.keys(rows[0]);
+      for (const row of rows) {
+        if (row && Object.keys(row).length > 0) return row;
+      }
+      return null;
+    }
+
+    function findColumn(rows, candidates) {
+      const sample = firstRowWithKeys(rows);
+      if (!sample) return null;
+      const keys = Object.keys(sample);
       const map = {};
       keys.forEach(k => { map[normalizeKey(k)] = k; });
       for (const c of candidates) {
         const hit = map[normalizeKey(c)];
         if (hit) return hit;
       }
+      return null;
+    }
+
+    function filterRows(rows) {
+      if (!Array.isArray(rows)) return [];
+      return rows.filter(row => {
+        if (!row || Object.keys(row).length === 0) return false;
+        return Object.values(row).some(val => {
+          if (val === null || val === undefined) return false;
+          if (typeof val === "string" && val.trim() === "") return false;
+          return true;
+        });
+      });
+    }
+
+    function preferCounts(primary, fallback) {
+      if (primary && Object.keys(primary).length > 0) return primary;
+      if (fallback && Object.keys(fallback).length > 0) return fallback;
       return null;
     }
 
@@ -429,53 +472,92 @@
     }
 
     async function reload() {
+      if (isLoading) return;
+      isLoading = true;
       const btn = document.getElementById("reloadBtn");
       btn.disabled = true;
       document.getElementById("syncStatus").innerText = "Loading";
       document.getElementById("syncTime").innerText = new Date().toLocaleString();
+      const errorBanner = document.getElementById("errorBanner");
+      errorBanner.classList.remove("show");
+      errorBanner.textContent = "";
 
-      charts.forEach(c => c.destroy());
-      charts = [];
+      try {
+        charts.forEach(c => c.destroy());
+        charts = [];
 
-      const payload = await fetch(`${API_BASE}/data`).then(r => r.json());
-      const users = payload.users_master || [];
-      const subs = payload.subscriptions || [];
+        if (!API_BASE || API_BASE.includes("YOUR-RENDER-SERVICE")) {
+          throw new Error("Set data-api-base to your Render URL (example: https://your-service.onrender.com).");
+        }
 
-      const userIdCol = findColumn(users, ["TelegramUserID", "UserID", "user_id", "userid"]);
-      const regCol = findColumn(users, ["RegistrationStatus", "Status", "registration_status"]);
-      const verifiedCol = findColumn(users, ["EmailVerified", "Verified", "email_verified"]);
-      const planCol = findColumn(users, ["InvestmentPlanSelected", "Plan", "plan"]);
-      const riskCol = findColumn(users, ["RiskOptionSelected", "Risk", "risk"]);
+        const resp = await fetch(`${API_BASE}/data`);
+        if (!resp.ok) {
+          throw new Error(`API error ${resp.status}: ${resp.statusText}`);
+        }
+        const payload = await resp.json();
+        const users = filterRows(payload.users_master || []);
+        const subs = filterRows(payload.subscriptions || []);
 
-      const subStatusCol = findColumn(subs, ["Status", "SubscriptionStatus", "subscription_status"]);
-      const subPlanCol = findColumn(subs, ["Plan", "PlanName", "plan"]);
-      const subIntervalCol = findColumn(subs, ["Interval", "BillingInterval", "billing_interval", "Period"]);
+      const userIdCol = findColumn(users, ["telegram_user_id", "TelegramUserID", "UserID", "user_id", "userid"]);
+      const regCol = findColumn(users, ["onboarding_status", "RegistrationStatus", "Status", "registration_status"]);
+      const verifiedCol = findColumn(users, ["email_verified", "EmailVerified", "Verified", "email_verified"]);
+        const planCol = findColumn(users, ["investment_plan", "plan_name", "plan_code", "InvestmentPlanSelected", "Plan", "plan"]);
+        const riskCol = findColumn(users, ["risk_level", "risk", "RiskOptionSelected", "Risk"]);
 
-      const totalUsers = uniqueCount(users, userIdCol);
-      const completed = countMatch(users, regCol, ["completed"]);
+        const subStatusCol = findColumn(subs, ["status", "Status", "SubscriptionStatus", "subscription_status"]);
+        const subPlanCol = findColumn(subs, ["plan_name", "plan_code", "Plan", "PlanName", "plan"]);
+        const subIntervalCol = findColumn(subs, ["interval", "billing_interval", "period", "Interval", "BillingInterval", "Period", "robot_duration"]);
+        const subRiskCol = findColumn(subs, ["robot_risk_level", "risk_level", "risk"]);
+
+        const totalUsers = uniqueCount(users, userIdCol);
+      const completed = countMatch(users, regCol, ["completed", "complete"]);
       const verified = countMatch(users, verifiedCol, ["yes", "true", "verified"]);
-      const conversion = totalUsers ? ((completed / totalUsers) * 100).toFixed(1) + "%" : "--";
+        const conversion = totalUsers ? ((completed / totalUsers) * 100).toFixed(1) + "%" : "--";
 
-      document.getElementById("kpiUsers").innerText = totalUsers || "--";
-      document.getElementById("kpiCompleted").innerText = regCol ? completed : "--";
-      document.getElementById("kpiVerified").innerText = verifiedCol ? verified : "--";
-      document.getElementById("kpiConversion").innerText = regCol ? conversion : "--";
-      document.getElementById("kpiSubs").innerText = subs.length || "--";
-      document.getElementById("kpiActive").innerText = subStatusCol ? countMatch(subs, subStatusCol, ["active"]) : "--";
+        document.getElementById("kpiUsers").innerText = totalUsers || "--";
+        document.getElementById("kpiCompleted").innerText = regCol ? completed : "--";
+        document.getElementById("kpiVerified").innerText = verifiedCol ? verified : "--";
+        document.getElementById("kpiConversion").innerText = regCol ? conversion : "--";
+        document.getElementById("kpiSubs").innerText = subs.length || "--";
+        document.getElementById("kpiActive").innerText = subStatusCol ? countMatch(subs, subStatusCol, ["active"]) : "--";
 
-      document.getElementById("rowsTotal").innerText = users.length + subs.length;
-      document.getElementById("rowsDetail").innerText = users.length + " users + " + subs.length + " subs";
-      document.getElementById("syncStatus").innerText = "Fresh";
+        document.getElementById("rowsTotal").innerText = users.length + subs.length;
+        document.getElementById("rowsDetail").innerText = users.length + " users + " + subs.length + " subs";
+        document.getElementById("syncStatus").innerText = "Fresh";
 
-      renderChart("chartPlan", "bar", groupCounts(users, planCol), "emptyPlan");
-      renderChart("chartRisk", "pie", groupCounts(users, riskCol), "emptyRisk");
-      renderChart("chartReg", "bar", groupCounts(users, regCol), "emptyReg");
+        const userPlanCounts = groupCounts(users, planCol);
+        const subPlanCounts = groupCounts(subs, subPlanCol);
+        const planCounts = preferCounts(userPlanCounts, subPlanCounts);
 
-      renderChart("chartSubStatus", "doughnut", groupCounts(subs, subStatusCol), "emptySubStatus");
-      renderChart("chartSubPlan", "bar", groupCounts(subs, subPlanCol), "emptySubPlan");
-      renderChart("chartSubInterval", "pie", groupCounts(subs, subIntervalCol), "emptySubInterval");
+        const userRiskCounts = groupCounts(users, riskCol);
+        const subRiskCounts = groupCounts(subs, subRiskCol);
+        const riskCounts = preferCounts(userRiskCounts, subRiskCounts);
 
-      btn.disabled = false;
+        const planLabel = (userPlanCounts && Object.keys(userPlanCounts).length > 0)
+          ? "Users by plan"
+          : "Subscriptions by plan";
+        const riskLabel = (userRiskCounts && Object.keys(userRiskCounts).length > 0)
+          ? "Users by risk"
+          : "Subscriptions by risk";
+
+        document.querySelector("#chartPlan").closest(".chart-card").querySelector(".chart-title").innerText = planLabel;
+        document.querySelector("#chartRisk").closest(".chart-card").querySelector(".chart-title").innerText = riskLabel;
+
+        renderChart("chartPlan", "bar", planCounts, "emptyPlan");
+        renderChart("chartRisk", "pie", riskCounts, "emptyRisk");
+        renderChart("chartReg", "bar", groupCounts(users, regCol), "emptyReg");
+
+        renderChart("chartSubStatus", "doughnut", groupCounts(subs, subStatusCol), "emptySubStatus");
+        renderChart("chartSubPlan", "bar", groupCounts(subs, subPlanCol), "emptySubPlan");
+        renderChart("chartSubInterval", "pie", groupCounts(subs, subIntervalCol), "emptySubInterval");
+      } catch (err) {
+        errorBanner.textContent = `Data load failed: ${err.message}`;
+        errorBanner.classList.add("show");
+        document.getElementById("syncStatus").innerText = "Error";
+      } finally {
+        btn.disabled = false;
+        isLoading = false;
+      }
     }
 
     reload();
