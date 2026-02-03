@@ -181,6 +181,7 @@
       height: 340px;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
     .chart-header {
@@ -211,6 +212,7 @@
       width: 100% !important;
       height: 100% !important;
       flex: 1;
+      max-height: 260px;
     }
 
     .badge {
@@ -466,6 +468,9 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          layout: { padding: { top: 6, right: 8, bottom: 4, left: 8 } },
+          radius: type === "pie" || type === "doughnut" ? "80%" : undefined,
+          cutout: type === "doughnut" ? "55%" : undefined,
           plugins: { legend: { display: type !== "bar" } },
           scales: type === "bar" ? {
             x: { ticks: { color: "#475569" } },

@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse
 import base64
 import json
 import os
+import time
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
@@ -68,6 +69,27 @@ def load_subscriptions():
     df = pd.DataFrame(subscriptions_sheet.get_all_records())
     return _parse_timestamp(df)
 
+# ================= SIMPLE IN-MEMORY CACHE =================
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "600"))
+_cache = {
+    "users_master": {"ts": 0, "data": None},
+    "subscriptions": {"ts": 0, "data": None},
+}
+
+def _get_cached(key, loader):
+    now = time.time()
+    entry = _cache[key]
+    if entry["data"] is None or (now - entry["ts"]) > CACHE_TTL_SECONDS:
+        entry["data"] = loader()
+        entry["ts"] = now
+    return entry["data"]
+
+def get_users_master():
+    return _get_cached("users_master", load_users_master)
+
+def get_subscriptions():
+    return _get_cached("subscriptions", load_subscriptions)
+
 # ================= ROOT DASHBOARD =================
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
@@ -81,7 +103,7 @@ def users_page():
 # ================= API =================
 @app.get("/summary")
 def summary():
-    df = load_users_master()
+    df = get_users_master()
     total = df.TelegramUserID.nunique()
     completed = df[df.RegistrationStatus == "Completed"].TelegramUserID.nunique()
     verified = df[df.EmailVerified == "Yes"].TelegramUserID.nunique()
@@ -94,7 +116,7 @@ def summary():
 
 @app.get("/plans")
 def plans():
-    df = load_users_master()
+    df = get_users_master()
     return (
         df[df.RegistrationStatus == "Completed"]
         .groupby("InvestmentPlanSelected").TelegramUserID.nunique()
@@ -104,7 +126,7 @@ def plans():
 
 @app.get("/risks")
 def risks():
-    df = load_users_master()
+    df = get_users_master()
     return (
         df[df.RegistrationStatus == "Completed"]
         .groupby("RiskOptionSelected").TelegramUserID.nunique()
@@ -114,12 +136,12 @@ def risks():
 
 @app.get("/users-list")
 def users_list():
-    df = load_users_master()
+    df = get_users_master()
     return df.TelegramUsername.dropna().unique().tolist()
 
 @app.get("/user/{username}")
 def user_data(username: str):
-    df = load_users_master()
+    df = get_users_master()
     u = df[df.TelegramUsername == username]
     last = u.sort_values("Timestamp").iloc[-1]
     return {
@@ -135,19 +157,19 @@ def user_data(username: str):
 
 @app.get("/users-master")
 def users_master():
-    df = load_users_master()
+    df = get_users_master()
     return _df_to_records(df)
 
 @app.get("/subscriptions")
 def subscriptions():
-    df = load_subscriptions()
+    df = get_subscriptions()
     return _df_to_records(df)
 
 @app.get("/data")
 def all_data():
     return {
-        "users_master": _df_to_records(load_users_master()),
-        "subscriptions": _df_to_records(load_subscriptions()),
+        "users_master": _df_to_records(get_users_master()),
+        "subscriptions": _df_to_records(get_subscriptions()),
     }
 
 # ================= HTML =================
